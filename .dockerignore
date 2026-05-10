@@ -1,0 +1,17 @@
+**/node_modules
+**/.pnpm-store
+**/.pnpm-home
+**/.corepack
+**/.next
+**/dist
+**/.git
+**/.gitignore
+**/coverage
+**/*.log
+**/.turbo
+**/.claude
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+tools/prisma/*.exe

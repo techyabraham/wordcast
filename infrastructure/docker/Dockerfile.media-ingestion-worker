@@ -1,0 +1,23 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+RUN corepack enable
+
+FROM base AS deps
+RUN apk add --no-cache ffmpeg python3 py3-pip
+RUN pip install --no-cache-dir yt-dlp
+COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY services/media-ingestion-worker/package.json services/media-ingestion-worker/package.json
+RUN pnpm install --filter @wordcast/media-ingestion-worker... --frozen-lockfile=false
+
+FROM deps AS build
+COPY . .
+RUN pnpm --filter @wordcast/media-ingestion-worker build
+
+FROM node:20-alpine AS runtime
+WORKDIR /app
+RUN apk add --no-cache ffmpeg python3 py3-pip && pip install --no-cache-dir yt-dlp
+ENV NODE_ENV=production
+COPY --from=build /app/services/media-ingestion-worker/dist ./services/media-ingestion-worker/dist
+COPY --from=build /app/services/media-ingestion-worker/package.json ./services/media-ingestion-worker/package.json
+COPY --from=build /app/node_modules ./node_modules
+CMD ["node", "services/media-ingestion-worker/dist/index.js"]

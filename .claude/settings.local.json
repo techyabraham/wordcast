@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\src\\\\wordcast\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "PowerShell(Get-ChildItem \"c:\\\\src\\\\wordcast\\\\apps\\\\admin-dashboard\\\\app\\\\\\(dashboard\\)\" -Filter \"page.tsx\" -Recurse | ForEach-Object { Write-Output $_.FullName })",
+      "PowerShell(wsl --list --verbose 2>&1)",
+      "PowerShell(Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux)",
+      "PowerShell(Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform)",
+      "PowerShell(git -C \"c:\\\\src\\\\wordcast\" remote -v 2>&1)",
+      "PowerShell(git -C \"c:\\\\src\\\\wordcast\" status 2>&1)"
+    ]
+  }
+}

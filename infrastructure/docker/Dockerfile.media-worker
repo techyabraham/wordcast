@@ -1,0 +1,21 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+RUN corepack enable
+
+FROM base AS deps
+COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY services/media-worker/package.json services/media-worker/package.json
+RUN pnpm install --filter @wordcast/media-worker... --frozen-lockfile=false
+
+FROM deps AS build
+COPY . .
+RUN pnpm --filter @wordcast/media-worker build
+
+FROM node:20-alpine AS runtime
+WORKDIR /app
+RUN apk add --no-cache ffmpeg
+ENV NODE_ENV=production
+COPY --from=build /app/services/media-worker/dist ./services/media-worker/dist
+COPY --from=build /app/services/media-worker/package.json ./services/media-worker/package.json
+COPY --from=build /app/node_modules ./node_modules
+CMD ["node", "services/media-worker/dist/index.js"]

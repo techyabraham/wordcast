@@ -1,0 +1,774 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  SUSPENDED
+  DELETED
+}
+
+enum RoleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProgramType {
+  CONFERENCE
+  RETREAT
+  CRUSADE
+  RECURRING_SERVICE
+  SPECIAL_EVENT
+}
+
+enum SessionLabel {
+  MORNING
+  AFTERNOON
+  EVENING
+  NIGHT
+  CUSTOM
+}
+
+enum SermonSourceType {
+  MANUAL_UPLOAD
+  YOUTUBE_IMPORT
+  GOOGLE_DRIVE_IMPORT
+  EXTERNAL_LINK
+}
+
+enum SermonSpeakerRole {
+  LEAD_PASTOR
+  GUEST_MINISTER
+  EVANGELIST
+  TEACHER
+  PROPHET
+  APOSTLE
+  OTHER
+}
+
+enum SermonStatus {
+  DRAFT
+  PROCESSING
+  REVIEW_PENDING
+  PUBLISHED
+  ARCHIVED
+  FAILED
+}
+
+enum SoundBiteStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum UploadJobSource {
+  MANUAL
+  YOUTUBE
+  GOOGLE_DRIVE
+  IMPORT_SOCIAL_SERMON
+}
+
+enum UploadJobStatus {
+  PENDING
+  ACCEPTED
+  DOWNLOADING
+  PROCESSING_AUDIO
+  UPLOADING
+  TRANSCRIBING
+  QUARANTINE
+  VALIDATING
+  TRANSCODING
+  AI_PROCESSING
+  INDEXING
+  COMPLETED
+  FAILED
+}
+
+enum MediaAssetType {
+  ORIGINAL_AUDIO
+  PROCESSED_AUDIO
+  HLS_MANIFEST
+  HLS_SEGMENT
+  SOUND_BITE_CLIP
+  WAVEFORM
+  COVER_IMAGE
+  TRANSCRIPT_FILE
+}
+
+enum MediaAssetStatus {
+  UPLOADED
+  QUARANTINE
+  VALIDATED
+  PROCESSED
+  PUBLISHED
+  FAILED
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+  LIFETIME
+}
+
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum EntitlementType {
+  TRANSCRIPT_ACCESS
+  DOWNLOAD_ACCESS
+  AD_FREE
+  ENHANCED_LINKING
+}
+
+enum EntitlementSource {
+  PLAN
+  MANUAL_GRANT
+  PROMOTION
+}
+
+enum TopicSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AIMetadataStatus {
+  PENDING
+  GENERATED
+  REVIEWED
+  APPROVED
+  REJECTED
+}
+
+enum LivestreamStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  ARCHIVED
+  CANCELED
+}
+
+enum AuditSeverity {
+  INFO
+  WARN
+  CRITICAL
+}
+
+model User {
+  id                     String             @id @default(uuid())
+  email                  String             @unique
+  passwordHash           String
+  displayName            String
+  phoneNumber            String?
+  status                 UserStatus         @default(ACTIVE)
+  emailVerifiedAt        DateTime?
+  passwordResetTokenHash String?
+  passwordResetExpiresAt DateTime?
+  mfaEnabled             Boolean            @default(false)
+  mfaSecretEncrypted     String?
+  lastLoginAt            DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  deletedAt              DateTime?
+  roles                  UserRole[]
+  authSessions           AuthSession[]
+  subscriptions          Subscription[]
+  entitlements           UserEntitlement[]
+  playlists              Playlist[]
+  savedSermons           SavedSermon[]
+  listeningHistory       ListeningHistory[]
+  createdSermons         Sermon[]           @relation("SermonCreatedBy")
+  uploadedJobs           UploadJob[]
+  auditLogs              AuditLog[]         @relation("AuditActor")
+  preacherFollows        PreacherFollow[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  code        String           @unique
+  name        String
+  description String?
+  status      RoleStatus       @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  code        String           @unique
+  name        String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model UserRole {
+  userId     String
+  roleId     String
+  assignedBy String?
+  assignedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model AuthSession {
+  id                   String   @id @default(uuid())
+  userId               String
+  refreshTokenHash     String
+  ipAddress            String?
+  userAgent            String?
+  deviceFingerprint    String?
+  isRevoked            Boolean  @default(false)
+  revokedAt            DateTime?
+  revokedReason        String?
+  expiresAt            DateTime
+  lastActivityAt       DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRevoked])
+  @@index([expiresAt])
+}
+
+model Plan {
+  id                     String             @id @default(uuid())
+  code                   String             @unique
+  name                   String
+  description            String?
+  amountKobo             Int
+  currency               String             @default("NGN")
+  interval               PlanInterval
+  status                 PlanStatus         @default(ACTIVE)
+  transcriptAccess       Boolean            @default(false)
+  downloadAccess         Boolean            @default(false)
+  adFree                 Boolean            @default(false)
+  enhancedLinking        Boolean            @default(false)
+  paystackPlanCode       String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  subscriptions          Subscription[]
+
+  @@index([status])
+}
+
+model Subscription {
+  id                      String             @id @default(uuid())
+  userId                  String
+  planId                  String
+  status                  SubscriptionStatus @default(TRIAL)
+  startsAt                DateTime
+  endsAt                  DateTime?
+  canceledAt              DateTime?
+  paystackCustomerCode    String?
+  paystackSubscriptionCode String?
+  paystackAuthorizationCode String?
+  metadata                Json?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                    Plan               @relation(fields: [planId], references: [id])
+
+  @@index([userId, status])
+  @@index([planId])
+}
+
+model UserEntitlement {
+  id          String            @id @default(uuid())
+  userId      String
+  type        EntitlementType
+  source      EntitlementSource
+  isActive    Boolean           @default(true)
+  grantedAt   DateTime          @default(now())
+  expiresAt   DateTime?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, source])
+  @@index([userId, isActive])
+}
+
+model Ministry {
+  id           String      @id @default(uuid())
+  name         String
+  slug         String      @unique
+  description  String?
+  websiteUrl   String?
+  country      String      @default("Nigeria")
+  state        String?
+  city         String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+  preachers    Preacher[]
+  programs     Program[]
+  livestreams  Livestream[]
+
+  @@index([name])
+}
+
+model Preacher {
+  id                 String            @id @default(uuid())
+  ministryId         String?
+  slug               String            @unique
+  displayName        String
+  biography          String?
+  profileImageUrl    String?
+  country            String            @default("Nigeria")
+  socialLinks        Json?
+  followerCount      Int               @default(0)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  deletedAt          DateTime?
+  ministry           Ministry?         @relation(fields: [ministryId], references: [id])
+  sermons            Sermon[]
+  followers          PreacherFollow[]
+
+  @@index([displayName])
+  @@index([ministryId])
+}
+
+model PreacherFollow {
+  userId      String
+  preacherId  String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preacher    Preacher @relation(fields: [preacherId], references: [id], onDelete: Cascade)
+
+  @@id([userId, preacherId])
+  @@index([preacherId])
+}
+
+model Program {
+  id           String      @id @default(uuid())
+  ministryId   String?
+  slug         String      @unique
+  name         String
+  year         Int?
+  theme        String?
+  organizer    String?
+  programType  ProgramType
+  location     String?
+  startDate    DateTime?
+  endDate      DateTime?
+  description  String?
+  coverImage   String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+  ministry     Ministry?   @relation(fields: [ministryId], references: [id])
+  sessions     Session[]
+  sermons      Sermon[]
+
+  @@index([name])
+  @@index([year])
+  @@index([programType])
+}
+
+model Session {
+  id           String        @id @default(uuid())
+  programId    String
+  slug         String        @unique
+  name         String
+  dayNumber    Int?
+  sessionLabel SessionLabel
+  customLabel  String?
+  sessionOrder Int           @default(1)
+  sessionDate  DateTime?
+  startTime    DateTime?
+  endTime      DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+  program      Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
+  sermons      Sermon[]
+
+  @@index([programId, sessionOrder])
+  @@index([sessionDate])
+}
+
+model Topic {
+  id          String            @id @default(uuid())
+  slug        String            @unique
+  name        String            @unique
+  description String?
+  isSystem    Boolean           @default(false)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deletedAt   DateTime?
+  aliases     TopicAlias[]
+  sermons     SermonTopic[]
+  suggestions TopicSuggestion[]
+
+  @@index([isActive])
+}
+
+model TopicAlias {
+  id         String   @id @default(uuid())
+  topicId    String
+  alias      String   @unique
+  normalized String
+  createdAt  DateTime @default(now())
+  topic      Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([topicId])
+  @@index([normalized])
+}
+
+model Sermon {
+  id               String            @id @default(uuid())
+  preacherId       String
+  programId        String?
+  sessionId        String?
+  createdById      String
+  title            String
+  slug             String            @unique
+  churchName       String?
+  datePreached     DateTime?
+  durationSeconds  Int?
+  transcript       String?
+  description      String?
+  language         String            @default("en")
+  sourceType       SermonSourceType
+  sourceUrl        String?
+  speakerRole      SermonSpeakerRole @default(OTHER)
+  status           SermonStatus      @default(DRAFT)
+  playCount        Int               @default(0)
+  likeCount        Int               @default(0)
+  shareCount       Int               @default(0)
+  publishedAt      DateTime?
+  searchVector     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  preacher         Preacher          @relation(fields: [preacherId], references: [id])
+  program          Program?          @relation(fields: [programId], references: [id])
+  session          Session?          @relation(fields: [sessionId], references: [id])
+  createdBy        User              @relation("SermonCreatedBy", fields: [createdById], references: [id])
+  topics           SermonTopic[]
+  soundBites       SoundBite[]
+  playlists        PlaylistSermon[]
+  saves            SavedSermon[]
+  listeningHistory ListeningHistory[]
+  uploads          UploadJob[]
+  aiMetadata       SermonAIMetadata[]
+  transcripts      Transcript[]
+  topicSuggestions TopicSuggestion[]
+  mediaAssets      MediaAsset[]
+  versions         SermonVersion[]
+  livestreams      Livestream[]
+
+  @@index([status, publishedAt])
+  @@index([preacherId])
+  @@index([programId])
+  @@index([sessionId])
+  @@index([datePreached])
+  @@index([createdAt])
+}
+
+model SermonTopic {
+  sermonId    String
+  topicId     String
+  relevance   Float?
+  createdAt   DateTime @default(now())
+  sermon      Sermon   @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+  topic       Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([sermonId, topicId])
+  @@index([topicId])
+}
+
+model Transcript {
+  id              String   @id @default(uuid())
+  sermonId        String
+  language        String   @default("en")
+  durationSeconds Int?
+  fullText        String
+  segmentsJSON    Json
+  createdAt       DateTime @default(now())
+  sermon          Sermon   @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+
+  @@index([sermonId])
+}
+
+model SoundBite {
+  id            String         @id @default(uuid())
+  sermonId      String
+  clipAssetId   String?
+  title         String
+  quoteText     String?
+  startSeconds  Int
+  endSeconds    Int
+  status        SoundBiteStatus @default(DRAFT)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+  sermon        Sermon         @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+  clipAsset     MediaAsset?    @relation("SoundBiteClip", fields: [clipAssetId], references: [id])
+
+  @@index([sermonId])
+  @@index([status])
+}
+
+model Playlist {
+  id            String           @id @default(uuid())
+  userId        String
+  name          String
+  description   String?
+  isPublic      Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  deletedAt     DateTime?
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sermons       PlaylistSermon[]
+
+  @@index([userId])
+}
+
+model PlaylistSermon {
+  playlistId    String
+  sermonId      String
+  position      Int       @default(1)
+  addedAt       DateTime  @default(now())
+  playlist      Playlist  @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  sermon        Sermon    @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+
+  @@id([playlistId, sermonId])
+  @@index([sermonId])
+  @@index([playlistId, position])
+}
+
+model SavedSermon {
+  userId      String
+  sermonId    String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sermon      Sermon   @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+
+  @@id([userId, sermonId])
+  @@index([sermonId])
+}
+
+model ListeningHistory {
+  id                 String   @id @default(uuid())
+  userId             String
+  sermonId           String
+  progressSeconds    Int      @default(0)
+  completed          Boolean  @default(false)
+  listenedAt         DateTime @default(now())
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sermon             Sermon   @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+
+  @@index([userId, listenedAt])
+  @@index([sermonId])
+}
+
+model UploadJob {
+  id                 String         @id @default(uuid())
+  sermonId           String?
+  requestedById      String
+  source             UploadJobSource
+  sourceUrl          String?
+  fileName           String?
+  mimeType           String?
+  sizeBytes          BigInt?
+  status             UploadJobStatus @default(ACCEPTED)
+  errorMessage       String?
+  externalRef        String?
+  metadata           Json?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  completedAt        DateTime?
+  sermon             Sermon?        @relation(fields: [sermonId], references: [id])
+  requestedBy        User           @relation(fields: [requestedById], references: [id])
+  aiMetadata         SermonAIMetadata[]
+  mediaAssets        MediaAsset[]
+
+  @@index([requestedById, status])
+  @@index([sermonId])
+  @@index([createdAt])
+}
+
+model SermonAIMetadata {
+  id                  String           @id @default(uuid())
+  sermonId            String
+  uploadJobId         String?
+  transcript          String?
+  generatedDescription String?
+  summary             String?
+  detectedTopics      Json?
+  generatedTags       Json?
+  scriptureReferences Json?
+  confidenceScore     Float?
+  status              AIMetadataStatus @default(PENDING)
+  reviewedById        String?
+  reviewedAt          DateTime?
+  reviewNotes         String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  sermon              Sermon           @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+  uploadJob           UploadJob?       @relation(fields: [uploadJobId], references: [id])
+  topicSuggestions    TopicSuggestion[]
+
+  @@index([sermonId, status])
+  @@index([uploadJobId])
+}
+
+model TopicSuggestion {
+  id                 String                @id @default(uuid())
+  sermonId           String
+  sourceAiMetadataId String?
+  proposedName       String
+  normalizedName     String
+  confidenceScore    Float?
+  matchedTopicId     String?
+  status             TopicSuggestionStatus @default(PENDING)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  sermon             Sermon                @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+  sourceAiMetadata   SermonAIMetadata?     @relation(fields: [sourceAiMetadataId], references: [id])
+  matchedTopic       Topic?                @relation(fields: [matchedTopicId], references: [id])
+
+  @@index([sermonId, status])
+  @@index([normalizedName])
+}
+
+model MediaAsset {
+  id                  String           @id @default(uuid())
+  sermonId            String?
+  uploadJobId         String?
+  type                MediaAssetType
+  status              MediaAssetStatus @default(UPLOADED)
+  storageProvider     String           @default("s3")
+  bucket              String?
+  objectKey           String?
+  cdnUrl              String?
+  originalFileName    String?
+  mimeType            String?
+  sizeBytes           BigInt?
+  durationSeconds     Int?
+  checksumSha256      String?
+  metadata            Json?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  deletedAt           DateTime?
+  sermon              Sermon?          @relation(fields: [sermonId], references: [id])
+  soundBiteClipFor    SoundBite[]      @relation("SoundBiteClip")
+  uploadJob           UploadJob?       @relation(fields: [uploadJobId], references: [id])
+
+  @@index([sermonId, type])
+  @@index([status])
+  @@index([uploadJobId])
+}
+
+model SermonVersion {
+  id                 String   @id @default(uuid())
+  sermonId           String
+  versionNumber      Int
+  title              String
+  description        String?
+  transcript         String?
+  payload            Json
+  createdById        String?
+  createdAt          DateTime @default(now())
+  sermon             Sermon   @relation(fields: [sermonId], references: [id], onDelete: Cascade)
+
+  @@unique([sermonId, versionNumber])
+  @@index([sermonId])
+}
+
+model Livestream {
+  id                 String           @id @default(uuid())
+  ministryId         String?
+  sermonId           String?
+  title              String
+  description        String?
+  streamKeyHash      String?
+  ingestUrl          String?
+  playbackUrl        String?
+  scheduledStartAt   DateTime?
+  actualStartAt      DateTime?
+  endedAt            DateTime?
+  status             LivestreamStatus @default(SCHEDULED)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  deletedAt          DateTime?
+  ministry           Ministry?        @relation(fields: [ministryId], references: [id])
+  sermon             Sermon?          @relation(fields: [sermonId], references: [id])
+
+  @@index([status, scheduledStartAt])
+  @@index([ministryId])
+}
+
+model AuditLog {
+  id            String        @id @default(uuid())
+  actorUserId   String?
+  action        String
+  entityType    String
+  entityId      String?
+  severity      AuditSeverity @default(INFO)
+  ipAddress     String?
+  userAgent     String?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  actor         User?         @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// Idempotency table for inbound webhooks — prevents double-processing on retries
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  provider    String
+  eventId     String
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@unique([provider, eventId])
+  @@index([processedAt])
+}
+

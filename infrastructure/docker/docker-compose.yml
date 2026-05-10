@@ -1,0 +1,53 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wordcast-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wordcast
+      POSTGRES_PASSWORD: wordcast
+      POSTGRES_DB: wordcast
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U wordcast -d wordcast']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wordcast-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  typesense:
+    image: typesense/typesense:0.25.2
+    container_name: wordcast-typesense
+    restart: unless-stopped
+    ports:
+      - '8108:8108'
+    environment:
+      TYPESENSE_API_KEY: xyz-wordcast-typesense-key
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_ENABLE_CORS: 'true'
+    volumes:
+      - typesense_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
+  typesense_data:
