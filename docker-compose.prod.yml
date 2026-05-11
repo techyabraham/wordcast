@@ -1,0 +1,215 @@
+version: '3.9'
+
+# Production Docker Compose for Wordcast
+# Coolify: Base Directory = /  |  Docker Compose Location = /docker-compose.prod.yml
+# All ${VAR} values are set as Environment Variables in the Coolify service UI.
+
+networks:
+  wordcast:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  typesense_data:
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: wordcast-postgres
+    restart: unless-stopped
+    networks: [wordcast]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wordcast}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-wordcast}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-wordcast} -d ${POSTGRES_DB:-wordcast}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wordcast-redis
+    restart: unless-stopped
+    networks: [wordcast]
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD}']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  typesense:
+    image: typesense/typesense:0.25.2
+    container_name: wordcast-typesense
+    restart: unless-stopped
+    networks: [wordcast]
+    environment:
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY}
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_ENABLE_CORS: 'true'
+    volumes:
+      - typesense_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8108/health | grep -q ok']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── API ─────────────────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: wordcast-api
+    restart: unless-stopped
+    networks: [wordcast]
+    ports:
+      - '${API_PORT:-4000}:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wordcast}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wordcast}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
+      TYPESENSE_HOST: typesense
+      TYPESENSE_PORT: 8108
+      TYPESENSE_PROTOCOL: http
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      PAYSTACK_WEBHOOK_SECRET: ${PAYSTACK_WEBHOOK_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      ADMIN_DASHBOARD_URL: ${ADMIN_DASHBOARD_URL}
+      API_BASE_URL: ${API_BASE_URL:-http://api:4000/api/v1}
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4000/api/v1/health || exit 1']
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Admin Dashboard ──────────────────────────────────────────────────────────
+
+  admin-dashboard:
+    build:
+      context: .
+      dockerfile: apps/admin-dashboard/Dockerfile
+    container_name: wordcast-admin
+    restart: unless-stopped
+    networks: [wordcast]
+    ports:
+      - '${ADMIN_PORT:-3000}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_BASE_URL: http://api:4000/api/v1
+
+  # ── Workers ──────────────────────────────────────────────────────────────────
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: services/media-worker/Dockerfile
+    container_name: wordcast-media-worker
+    restart: unless-stopped
+    networks: [wordcast]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wordcast}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wordcast}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+
+  ai-worker:
+    build:
+      context: .
+      dockerfile: services/ai-worker/Dockerfile
+    container_name: wordcast-ai-worker
+    restart: unless-stopped
+    networks: [wordcast]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wordcast}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wordcast}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+  search-worker:
+    build:
+      context: .
+      dockerfile: services/search-worker/Dockerfile
+    container_name: wordcast-search-worker
+    restart: unless-stopped
+    networks: [wordcast]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      typesense:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wordcast}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wordcast}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      TYPESENSE_HOST: typesense
+      TYPESENSE_PORT: 8108
+      TYPESENSE_PROTOCOL: http
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY}
+
+  media-ingestion-worker:
+    build:
+      context: .
+      dockerfile: services/media-ingestion-worker/Dockerfile
+    container_name: wordcast-ingestion-worker
+    restart: unless-stopped
+    networks: [wordcast]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wordcast}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wordcast}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_ACCESS_KEY: ${R2_ACCESS_KEY}
+      R2_SECRET_KEY: ${R2_SECRET_KEY}
+      R2_BUCKET: ${R2_BUCKET}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL}
